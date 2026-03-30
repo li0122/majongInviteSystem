@@ -25,9 +25,15 @@ const userSchema = new Schema<IUser>(
       type: {
         type: String,
         enum: ["Point"],
+        default: undefined,
       },
       coordinates: {
         type: [Number],
+        default: undefined,
+        validate: {
+          validator: (value?: number[]) => value === undefined || value.length === 2,
+          message: "location.coordinates must contain exactly [lon, lat]",
+        },
       },
     },
   },

@@ -21,6 +21,18 @@ async function requestOtp(req, res) {
         const normalized = email.toLowerCase().trim();
         const otp = (0, otp_service_1.generateOtp)();
         const expireAt = new Date(Date.now() + OTP_EXPIRE_MINUTES * 60 * 1000);
+        // Legacy records may contain invalid GeoJSON like coordinates: [].
+        // Remove invalid location first so unrelated OTP updates do not fail on 2dsphere index checks.
+        await User_1.UserModel.updateOne({
+            email: normalized,
+            $or: [
+                { "location.type": { $exists: true, $ne: "Point" } },
+                { "location.coordinates.1": { $exists: false } },
+                { "location.coordinates.2": { $exists: true } },
+            ],
+        }, {
+            $unset: { location: 1 },
+        });
         await User_1.UserModel.findOneAndUpdate({ email: normalized }, {
             $set: {
                 email: normalized,
