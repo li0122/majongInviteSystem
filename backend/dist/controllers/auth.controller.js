@@ -6,6 +6,12 @@ exports.updateLocation = updateLocation;
 const User_1 = require("../models/User");
 const otp_service_1 = require("../services/otp.service");
 const OTP_EXPIRE_MINUTES = Number(process.env.OTP_EXPIRE_MINUTES || 10);
+function toErrorMessage(error) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
+}
 async function requestOtp(req, res) {
     try {
         const { email } = req.body;
@@ -27,7 +33,11 @@ async function requestOtp(req, res) {
     }
     catch (error) {
         console.error(error);
-        return res.status(500).json({ message: "Failed to request OTP" });
+        const isProduction = process.env.NODE_ENV === "production";
+        const reason = toErrorMessage(error);
+        return res.status(500).json({
+            message: isProduction ? "Failed to request OTP" : `Failed to request OTP: ${reason}`,
+        });
     }
 }
 async function verifyOtp(req, res) {
