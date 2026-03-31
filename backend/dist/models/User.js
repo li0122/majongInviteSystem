@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserModel = void 0;
 const mongoose_1 = require("mongoose");
-const bcrypt_1 = __importDefault(require("bcrypt"));
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const userSchema = new mongoose_1.Schema({
     email: { type: String, required: true, lowercase: true, trim: true },
     username: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -38,7 +38,7 @@ userSchema.pre('save', async function (next) {
     if (!this.isModified('password'))
         return next();
     try {
-        const hashed = await bcrypt_1.default.hash(this.password, 10);
+        const hashed = await bcryptjs_1.default.hash(this.password, 10);
         this.password = hashed;
         next();
     }
@@ -55,7 +55,7 @@ userSchema.methods.comparePassword = async function (plainPassword) {
     if (!this.password.startsWith("$2a$") && !this.password.startsWith("$2b$") && !this.password.startsWith("$2y$")) {
         return this.password === plainPassword;
     }
-    return bcrypt_1.default.compare(plainPassword, this.password);
+    return bcryptjs_1.default.compare(plainPassword, this.password);
 };
 userSchema.index({ location: "2dsphere" });
 exports.UserModel = (0, mongoose_1.model)("User", userSchema);

@@ -8,7 +8,7 @@ exports.requestOtp = requestOtp;
 exports.verifyOtp = verifyOtp;
 exports.login = login;
 exports.updateLocation = updateLocation;
-const bcrypt_1 = __importDefault(require("bcrypt"));
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const User_1 = require("../models/User");
 const otp_service_1 = require("../services/otp.service");
@@ -35,7 +35,7 @@ async function register(req, res) {
             return res.status(400).json({ message: "Username already exists" });
         }
         const normalized = email.toLowerCase().trim();
-        const hashedPassword = await bcrypt_1.default.hash(password, 10);
+        const hashedPassword = await bcryptjs_1.default.hash(password, 10);
         const otp = (0, otp_service_1.generateOtp)();
         const expireAt = new Date(Date.now() + OTP_EXPIRE_MINUTES * 60 * 1000);
         // Create or update user with OTP pending registration
