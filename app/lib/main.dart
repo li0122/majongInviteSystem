@@ -60,17 +60,17 @@ class _MahjongAppState extends State<MahjongApp> {
 
   Future<void> _checkAutoLogin() async {
     final authService = AuthService(_apiClient);
-    final storedToken = await authService.getStoredToken();
-    if (storedToken != null && mounted) {
-      // Token 存在，暫時用它創建 session
-      // 實際上應該用 token 去驗證後端，但這裡簡化處理
-      setState(() {
-        _isLoading = false;
-        _showLoginScreen = true; // 還是要求重新登入確認
-      });
-    } else {
-      setState(() => _isLoading = false);
+    final storedSession = await authService.getStoredSession();
+
+    if (!mounted) {
+      return;
     }
+
+    setState(() {
+      _session = storedSession;
+      _isLoading = false;
+      _showLoginScreen = storedSession == null;
+    });
   }
 
   @override

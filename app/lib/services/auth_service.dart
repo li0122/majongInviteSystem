@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/user_session.dart';
@@ -13,6 +15,47 @@ class AuthService {
   Future<String?> getStoredToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_tokenKey);
+  }
+
+  Future<UserSession?> getStoredSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_userKey);
+
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return UserSession(
+        userId: map['userId'] as String,
+        email: map['email'] as String,
+        username: map['username'] as String,
+        name: map['name'] as String,
+        fcmToken: map['fcmToken'] as String,
+        token: map['token'] as String,
+      );
+    } catch (_) {
+      await prefs.remove(_userKey);
+      await prefs.remove(_tokenKey);
+      return null;
+    }
+  }
+
+  Future<void> saveSession(UserSession session) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenKey, session.token);
+    await prefs.setString(
+      _userKey,
+      jsonEncode({
+        'userId': session.userId,
+        'email': session.email,
+        'username': session.username,
+        'name': session.name,
+        'fcmToken': session.fcmToken,
+        'token': session.token,
+      }),
+    );
   }
 
   Future<void> saveToken(String token) async {
@@ -67,7 +110,7 @@ class AuthService {
       token: token,
     );
 
-    await saveToken(token);
+    await saveSession(session);
     return session;
   }
 
@@ -94,7 +137,7 @@ class AuthService {
       token: token,
     );
 
-    await saveToken(token);
+    await saveSession(session);
     return session;
   }
 

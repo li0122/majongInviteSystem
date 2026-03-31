@@ -65,6 +65,15 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(plainPassword: string): Promise<boolean> {
+  if (!this.password) {
+    return false;
+  }
+
+  // Backward compatibility: old accounts may still store plaintext passwords.
+  if (!this.password.startsWith("$2a$") && !this.password.startsWith("$2b$") && !this.password.startsWith("$2y$")) {
+    return this.password === plainPassword;
+  }
+
   return bcrypt.compare(plainPassword, this.password);
 };
 

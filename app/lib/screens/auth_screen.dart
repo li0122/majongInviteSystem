@@ -254,25 +254,3 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 }
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (_message != null)
-                  Text(
-                    _message!,
-                    style: const TextStyle(color: Color(0xFF8A1C1C)),
-                  ),
-                if (_loading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

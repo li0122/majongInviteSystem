@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { UserModel } from "../models/User";
 import { generateOtp, sendOtpEmail } from "../services/otp.service";
@@ -38,6 +39,7 @@ export async function register(req: Request, res: Response) {
     }
 
     const normalized = email.toLowerCase().trim();
+    const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOtp();
     const expireAt = new Date(Date.now() + OTP_EXPIRE_MINUTES * 60 * 1000);
 
@@ -49,7 +51,7 @@ export async function register(req: Request, res: Response) {
           email: normalized,
           username: username.toLowerCase().trim(),
           name,
-          password, // Will be hashed by middleware
+          password: hashedPassword,
           latestOtp: otp,
           otpExpireAt: expireAt,
           verified: false,
