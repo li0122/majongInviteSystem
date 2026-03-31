@@ -1,8 +1,14 @@
 import { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { UserModel } from "../models/User";
 import { generateOtp, sendOtpEmail } from "../services/otp.service";
 
 const OTP_EXPIRE_MINUTES = Number(process.env.OTP_EXPIRE_MINUTES || 10);
+const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key-change-in-production";
+
+function generateToken(userId: string): string {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "30d" });
+}
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -10,6 +16,60 @@ function toErrorMessage(error: unknown) {
   }
 
   return String(error);
+}
+
+export async function register(req: Request, res: Response) {
+  try {
+    const { name, username, password, email } = req.body as {
+      name?: string;
+      username?: string;
+      password?: string;
+      email?: string;
+    };
+
+    if (!name || !username || !password || !email) {
+      return res.status(400).json({ message: "name, username, password, email are required" });
+    }
+
+    // Check if username already exists
+    const existing = await UserModel.findOne({ username: username.toLowerCase().trim() });
+    if (existing) {
+      return res.status(400).json({ message: "Username already exists" });
+    }
+
+    const normalized = email.toLowerCase().trim();
+    const otp = generateOtp();
+    const expireAt = new Date(Date.now() + OTP_EXPIRE_MINUTES * 60 * 1000);
+
+    // Create or update user with OTP pending registration
+    await UserModel.findOneAndUpdate(
+      { email: normalized },
+      {
+        $set: {
+          email: normalized,
+          username: username.toLowerCase().trim(),
+          name,
+          password, // Will be hashed by middleware
+          latestOtp: otp,
+          otpExpireAt: expireAt,
+          verified: false,
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    await sendOtpEmail(normalized, otp);
+
+    return res.json({ message: "OTP sent for registration" });
+  } catch (error) {
+    console.error(error);
+    const isProduction = process.env.NODE_ENV === "production";
+    const reason = toErrorMessage(error);
+
+    return res.status(500).json({
+      message: isProduction ? "Failed to register" : `Failed to register: ${reason}`,
+    });
+  }
 }
 
 export async function requestOtp(req: Request, res: Response) {
@@ -96,17 +156,68 @@ export async function verifyOtp(req: Request, res: Response) {
 
     await user.save();
 
+    const token = generateToken(user._id.toString());
+
     return res.json({
       message: "verified",
+      token,
       user: {
         id: user._id,
         email: user.email,
+        username: user.username,
+        name: user.name,
         verified: user.verified,
       },
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Failed to verify OTP" });
+  }
+}
+
+export async function login(req: Request, res: Response) {
+  try {
+    const { username, password, fcmToken } = req.body as {
+      username?: string;
+      password?: string;
+      fcmToken?: string;
+    };
+
+    if (!username || !password) {
+      return res.status(400).json({ message: "username and password are required" });
+    }
+
+    const user = await UserModel.findOne({ username: username.toLowerCase().trim() });
+    if (!user || !user.verified) {
+      return res.status(401).json({ message: "Invalid credentials or user not verified" });
+    }
+
+    const passwordMatches = await user.comparePassword(password);
+    if (!passwordMatches) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (fcmToken) {
+      user.fcmToken = fcmToken;
+      await user.save();
+    }
+
+    const token = generateToken(user._id.toString());
+
+    return res.json({
+      message: "logged in",
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        name: user.name,
+        verified: user.verified,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to login" });
   }
 }
 

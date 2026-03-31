@@ -30,16 +30,16 @@
 	<dict>
 		<key>NSExceptionDomains</key>
 		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
 			<key>localhost</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
-			<key>127.0.0.1</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 			</dict>
 		</dict>
@@ -48,10 +48,6 @@
 	<string>麻將配對需要背景定位，以在 15 公里內即時推送桌友配對。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>麻將配對需要定位來搜尋你附近 15 公里內的桌友。</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -75,6 +71,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
