@@ -41,5 +41,13 @@ const matchRequestSchema = new Schema<IMatchRequest>(
 );
 
 matchRequestSchema.index({ location: "2dsphere" });
+matchRequestSchema.index(
+  { userId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "searching" },
+    name: "uniq_searching_request_per_user",
+  }
+);
 
 export const MatchRequestModel = model<IMatchRequest>("MatchRequest", matchRequestSchema);

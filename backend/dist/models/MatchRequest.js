@@ -26,4 +26,9 @@ const matchRequestSchema = new mongoose_1.Schema({
     },
 }, { timestamps: true });
 matchRequestSchema.index({ location: "2dsphere" });
+matchRequestSchema.index({ userId: 1 }, {
+    unique: true,
+    partialFilterExpression: { status: "searching" },
+    name: "uniq_searching_request_per_user",
+});
 exports.MatchRequestModel = (0, mongoose_1.model)("MatchRequest", matchRequestSchema);

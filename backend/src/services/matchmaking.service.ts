@@ -9,6 +9,13 @@ import { geometricMedian, googleNavigationUrl, haversineDistanceKm } from "../ut
 const MATCH_RADIUS_KM = 15;
 const TIME_WINDOW_MINUTES = 60;
 
+class DuplicateActiveMatchRequestError extends Error {
+  constructor() {
+    super("Duplicate active matchmaking request");
+    this.name = "DuplicateActiveMatchRequestError";
+  }
+}
+
 function toDate(value: string | Date) {
   return value instanceof Date ? value : new Date(value);
 }
@@ -40,6 +47,27 @@ function pickBestVenue(target: { lat: number; lon: number }) {
     ...best,
     navigationUrl: googleNavigationUrl(best.lat, best.lon),
   };
+}
+
+async function getCurrentMatchedCount(request: IMatchRequest) {
+  const { before, after } = timeWindow(request.startTime);
+
+  const candidates = await MatchRequestModel.find({
+    stakeLevel: request.stakeLevel,
+    status: "searching",
+    startTime: { $gte: before, $lte: after },
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: request.location.coordinates,
+        },
+        $maxDistance: MATCH_RADIUS_KM * 1000,
+      },
+    },
+  }).limit(4);
+
+  return Math.min(4, candidates.length);
 }
 
 async function notifyNearbyUsers(reference: IMatchRequest) {
@@ -78,16 +106,59 @@ export async function startMatchmaking(params: {
   lon: number;
 }) {
   const start = toDate(params.startTime);
-  const request = await MatchRequestModel.create({
-    userId: new Types.ObjectId(params.userId),
-    stakeLevel: params.stakeLevel,
-    startTime: start,
+  const userObjectId = new Types.ObjectId(params.userId);
+  const existingRequest = await MatchRequestModel.findOne({
+    userId: userObjectId,
     status: "searching",
-    location: {
-      type: "Point",
-      coordinates: [params.lon, params.lat],
-    },
   });
+
+  if (existingRequest) {
+    return {
+      status: "waiting",
+      requestId: existingRequest._id,
+      currentMatchedCount: await getCurrentMatchedCount(existingRequest),
+    };
+  }
+
+  let request: IMatchRequest;
+
+  try {
+    request = await MatchRequestModel.create({
+      userId: userObjectId,
+      stakeLevel: params.stakeLevel,
+      startTime: start,
+      status: "searching",
+      location: {
+        type: "Point",
+        coordinates: [params.lon, params.lat],
+      },
+    });
+  } catch (error: unknown) {
+    const duplicateKeyError =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: number }).code === 11000;
+
+    if (!duplicateKeyError) {
+      throw error;
+    }
+
+    const activeRequest = await MatchRequestModel.findOne({
+      userId: userObjectId,
+      status: "searching",
+    });
+
+    if (!activeRequest) {
+      throw new DuplicateActiveMatchRequestError();
+    }
+
+    return {
+      status: "waiting",
+      requestId: activeRequest._id,
+      currentMatchedCount: await getCurrentMatchedCount(activeRequest),
+    };
+  }
 
   await notifyNearbyUsers(request);
 

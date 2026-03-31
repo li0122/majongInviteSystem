@@ -11,6 +11,12 @@ const push_service_1 = require("./push.service");
 const geo_1 = require("../utils/geo");
 const MATCH_RADIUS_KM = 15;
 const TIME_WINDOW_MINUTES = 60;
+class DuplicateActiveMatchRequestError extends Error {
+    constructor() {
+        super("Duplicate active matchmaking request");
+        this.name = "DuplicateActiveMatchRequestError";
+    }
+}
 function toDate(value) {
     return value instanceof Date ? value : new Date(value);
 }
@@ -38,6 +44,24 @@ function pickBestVenue(target) {
         navigationUrl: (0, geo_1.googleNavigationUrl)(best.lat, best.lon),
     };
 }
+async function getCurrentMatchedCount(request) {
+    const { before, after } = timeWindow(request.startTime);
+    const candidates = await MatchRequest_1.MatchRequestModel.find({
+        stakeLevel: request.stakeLevel,
+        status: "searching",
+        startTime: { $gte: before, $lte: after },
+        location: {
+            $near: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: request.location.coordinates,
+                },
+                $maxDistance: MATCH_RADIUS_KM * 1000,
+            },
+        },
+    }).limit(4);
+    return Math.min(4, candidates.length);
+}
 async function notifyNearbyUsers(reference) {
     const nearbyUsers = await User_1.UserModel.find({
         _id: { $ne: reference.userId },
@@ -60,16 +84,52 @@ async function notifyNearbyUsers(reference) {
 }
 async function startMatchmaking(params) {
     const start = toDate(params.startTime);
-    const request = await MatchRequest_1.MatchRequestModel.create({
-        userId: new mongoose_1.Types.ObjectId(params.userId),
-        stakeLevel: params.stakeLevel,
-        startTime: start,
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const existingRequest = await MatchRequest_1.MatchRequestModel.findOne({
+        userId: userObjectId,
         status: "searching",
-        location: {
-            type: "Point",
-            coordinates: [params.lon, params.lat],
-        },
     });
+    if (existingRequest) {
+        return {
+            status: "waiting",
+            requestId: existingRequest._id,
+            currentMatchedCount: await getCurrentMatchedCount(existingRequest),
+        };
+    }
+    let request;
+    try {
+        request = await MatchRequest_1.MatchRequestModel.create({
+            userId: userObjectId,
+            stakeLevel: params.stakeLevel,
+            startTime: start,
+            status: "searching",
+            location: {
+                type: "Point",
+                coordinates: [params.lon, params.lat],
+            },
+        });
+    }
+    catch (error) {
+        const duplicateKeyError = typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === 11000;
+        if (!duplicateKeyError) {
+            throw error;
+        }
+        const activeRequest = await MatchRequest_1.MatchRequestModel.findOne({
+            userId: userObjectId,
+            status: "searching",
+        });
+        if (!activeRequest) {
+            throw new DuplicateActiveMatchRequestError();
+        }
+        return {
+            status: "waiting",
+            requestId: activeRequest._id,
+            currentMatchedCount: await getCurrentMatchedCount(activeRequest),
+        };
+    }
     await notifyNearbyUsers(request);
     const { before, after } = timeWindow(start);
     const candidates = await MatchRequest_1.MatchRequestModel.find({

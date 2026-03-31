@@ -40,6 +40,8 @@ class _MatchScreenState extends State<MatchScreen> {
   StreamSubscription<Position>? _positionSub;
   Timer? _progressTimer;
 
+  bool get _hasActiveMatch => _activeRequestId != null;
+
   @override
   void initState() {
     super.initState();
@@ -290,13 +292,19 @@ class _MatchScreenState extends State<MatchScreen> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _loading ? null : _startMatch,
+              onPressed: (_loading || _hasActiveMatch) ? null : _startMatch,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF0F766E),
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 52),
               ),
-              child: Text(_loading ? '媒合中...' : '開始配對'),
+              child: Text(
+                _loading
+                    ? '媒合中...'
+                    : _hasActiveMatch
+                        ? '配對進行中'
+                        : '開始配對',
+              ),
             ),
             const SizedBox(height: 16),
             Card(
