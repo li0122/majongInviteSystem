@@ -20,4 +20,11 @@ class MatchmakingService {
       'lon': lon,
     });
   }
+
+  Future<Map<String, dynamic>> getMatchProgress({required String userId, required String requestId}) {
+    return _apiClient.get(
+      '/matchmaking/progress/$requestId',
+      queryParameters: {'userId': userId},
+    );
+  }
 }

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startMatchmaking = startMatchmaking;
+exports.getMatchmakingProgress = getMatchmakingProgress;
 const mongoose_1 = require("mongoose");
 const venues_1 = require("../data/venues");
 const MatchGroup_1 = require("../models/MatchGroup");
@@ -130,5 +131,63 @@ async function startMatchmaking(params) {
         venue,
         meetingPoint,
         startTime: start,
+    };
+}
+async function getMatchmakingProgress(params) {
+    const request = await MatchRequest_1.MatchRequestModel.findOne({
+        _id: new mongoose_1.Types.ObjectId(params.requestId),
+        userId: new mongoose_1.Types.ObjectId(params.userId),
+    });
+    if (!request) {
+        return {
+            status: "not_found",
+            message: "Match request not found",
+        };
+    }
+    if (request.status === "matched") {
+        const group = await MatchGroup_1.MatchGroupModel.findOne({ requestIds: request._id });
+        if (!group) {
+            return {
+                status: "matched",
+                requestId: request._id,
+                currentMatchedCount: 4,
+            };
+        }
+        return {
+            status: "matched",
+            requestId: request._id,
+            groupId: group._id,
+            currentMatchedCount: group.userIds.length,
+            venue: group.venue,
+            meetingPoint: group.meetingPoint,
+            startTime: group.startTime,
+        };
+    }
+    if (request.status === "expired") {
+        return {
+            status: "expired",
+            requestId: request._id,
+            currentMatchedCount: 0,
+        };
+    }
+    const { before, after } = timeWindow(request.startTime);
+    const candidates = await MatchRequest_1.MatchRequestModel.find({
+        stakeLevel: request.stakeLevel,
+        status: "searching",
+        startTime: { $gte: before, $lte: after },
+        location: {
+            $near: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: request.location.coordinates,
+                },
+                $maxDistance: MATCH_RADIUS_KM * 1000,
+            },
+        },
+    }).limit(4);
+    return {
+        status: "waiting",
+        requestId: request._id,
+        currentMatchedCount: Math.min(4, candidates.length),
     };
 }

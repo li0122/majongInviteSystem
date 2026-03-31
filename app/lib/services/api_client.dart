@@ -12,6 +12,25 @@ class ApiClient {
 
   final http.Client _httpClient;
 
+  Future<Map<String, dynamic>> get(String path, {Map<String, String>? queryParameters}) async {
+    final baseUri = Uri.parse('$_baseUrl$path');
+    final uri = queryParameters == null
+        ? baseUri
+        : baseUri.replace(queryParameters: queryParameters);
+
+    final response = await _httpClient.get(uri, headers: {'Content-Type': 'application/json'});
+
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (response.statusCode >= 400) {
+      throw Exception(decoded['message'] ?? 'Request failed with status ${response.statusCode}');
+    }
+
+    return decoded;
+  }
+
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
     final response = await _httpClient.post(
       Uri.parse('$_baseUrl$path'),

@@ -170,3 +170,69 @@ export async function startMatchmaking(params: {
     startTime: start,
   };
 }
+
+export async function getMatchmakingProgress(params: { userId: string; requestId: string }) {
+  const request = await MatchRequestModel.findOne({
+    _id: new Types.ObjectId(params.requestId),
+    userId: new Types.ObjectId(params.userId),
+  });
+
+  if (!request) {
+    return {
+      status: "not_found",
+      message: "Match request not found",
+    };
+  }
+
+  if (request.status === "matched") {
+    const group = await MatchGroupModel.findOne({ requestIds: request._id });
+    if (!group) {
+      return {
+        status: "matched",
+        requestId: request._id,
+        currentMatchedCount: 4,
+      };
+    }
+
+    return {
+      status: "matched",
+      requestId: request._id,
+      groupId: group._id,
+      currentMatchedCount: group.userIds.length,
+      venue: group.venue,
+      meetingPoint: group.meetingPoint,
+      startTime: group.startTime,
+    };
+  }
+
+  if (request.status === "expired") {
+    return {
+      status: "expired",
+      requestId: request._id,
+      currentMatchedCount: 0,
+    };
+  }
+
+  const { before, after } = timeWindow(request.startTime);
+
+  const candidates = await MatchRequestModel.find({
+    stakeLevel: request.stakeLevel,
+    status: "searching",
+    startTime: { $gte: before, $lte: after },
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: request.location.coordinates,
+        },
+        $maxDistance: MATCH_RADIUS_KM * 1000,
+      },
+    },
+  }).limit(4);
+
+  return {
+    status: "waiting",
+    requestId: request._id,
+    currentMatchedCount: Math.min(4, candidates.length),
+  };
+}

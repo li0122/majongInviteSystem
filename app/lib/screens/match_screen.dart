@@ -34,8 +34,11 @@ class _MatchScreenState extends State<MatchScreen> {
   bool _trackingReady = false;
   bool _loading = false;
   String _statusText = '等待開始配對';
+  String? _activeRequestId;
+  int _currentMatchedCount = 0;
 
   StreamSubscription<Position>? _positionSub;
+  Timer? _progressTimer;
 
   @override
   void initState() {
@@ -46,6 +49,7 @@ class _MatchScreenState extends State<MatchScreen> {
   @override
   void dispose() {
     _positionSub?.cancel();
+    _progressTimer?.cancel();
     super.dispose();
   }
 
@@ -101,6 +105,8 @@ class _MatchScreenState extends State<MatchScreen> {
 
     setState(() {
       _loading = true;
+      _activeRequestId = null;
+      _currentMatchedCount = 0;
       _statusText = '正在搜尋 15KM 內桌友...';
     });
 
@@ -126,17 +132,95 @@ class _MatchScreenState extends State<MatchScreen> {
 
       final status = result['status']?.toString() ?? 'unknown';
       if (status == 'waiting') {
-        setState(() => _statusText = '已送出配對，等待更多玩家加入');
-      } else {
-        final venue = result['venue'] as Map<String, dynamic>;
+        final requestId = result['requestId']?.toString();
+        final currentMatchedCount = (result['currentMatchedCount'] as num?)?.toInt() ?? 1;
+
         setState(() {
-          _statusText = '成團成功：${venue['name']}\n導航：${venue['navigationUrl']}';
+          _activeRequestId = requestId;
+          _currentMatchedCount = currentMatchedCount;
+          _statusText = '配對中：$_currentMatchedCount/4 人\n已送出配對，等待更多玩家加入';
+        });
+
+        if (requestId != null) {
+          _startProgressPolling(requestId);
+        }
+      } else {
+        final venue = result['venue'] as Map<String, dynamic>?;
+        final venueName = venue?['name']?.toString() ?? '地點待確認';
+        final navUrl = venue?['navigationUrl']?.toString() ?? '';
+        setState(() {
+          _activeRequestId = null;
+          _progressTimer?.cancel();
+          _currentMatchedCount = 4;
+          _statusText = navUrl.isEmpty
+              ? '成團成功：$venueName'
+              : '成團成功：$venueName\n導航：$navUrl';
         });
       }
     } catch (error) {
       setState(() => _statusText = '配對失敗：$error');
     } finally {
       setState(() => _loading = false);
+    }
+  }
+
+  void _startProgressPolling(String requestId) {
+    _progressTimer?.cancel();
+    _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _checkMatchProgress(requestId);
+    });
+  }
+
+  Future<void> _checkMatchProgress(String requestId) async {
+    if (!mounted || _activeRequestId != requestId) {
+      return;
+    }
+
+    try {
+      final result = await widget.matchmakingService.getMatchProgress(
+        userId: widget.session.userId,
+        requestId: requestId,
+      );
+
+      if (!mounted || _activeRequestId != requestId) {
+        return;
+      }
+
+      final status = result['status']?.toString() ?? 'unknown';
+      if (status == 'waiting') {
+        final count = (result['currentMatchedCount'] as num?)?.toInt() ?? _currentMatchedCount;
+        setState(() {
+          _currentMatchedCount = count;
+          _statusText = '配對中：$_currentMatchedCount/4 人\n正在搜尋符合條件玩家...';
+        });
+        return;
+      }
+
+      if (status == 'matched') {
+        final venue = result['venue'] as Map<String, dynamic>?;
+        final venueName = venue?['name']?.toString() ?? '地點待確認';
+        final navUrl = venue?['navigationUrl']?.toString() ?? '';
+
+        _progressTimer?.cancel();
+        setState(() {
+          _activeRequestId = null;
+          _currentMatchedCount = 4;
+          _statusText = navUrl.isEmpty
+              ? '成團成功：$venueName'
+              : '成團成功：$venueName\n導航：$navUrl';
+        });
+        return;
+      }
+
+      if (status == 'expired') {
+        _progressTimer?.cancel();
+        setState(() {
+          _activeRequestId = null;
+          _statusText = '本次配對已過期，請重新發起配對';
+        });
+      }
+    } catch (_error) {
+      // Keep polling; transient network errors should not stop the matching flow.
     }
   }
 
@@ -219,7 +303,22 @@ class _MatchScreenState extends State<MatchScreen> {
               color: const Color(0xFFFFFDF7),
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(_statusText),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_statusText),
+                    if (_activeRequestId != null) ...[
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: _currentMatchedCount / 4,
+                        minHeight: 8,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        color: const Color(0xFF0F766E),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 8),

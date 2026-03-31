@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { startMatch } from "../controllers/matchmaking.controller";
+import { getMatchProgress, startMatch } from "../controllers/matchmaking.controller";
 
 const router = Router();
 
 router.post("/start", startMatch);
+router.get("/progress/:requestId", getMatchProgress);
 
 export default router;

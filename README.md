@@ -150,6 +150,37 @@ flutter run --dart-define=API_BASE_URL=http://localhost:4000/api
 }
 ```
 
+### 5) 查看配對進度
+
+`GET /api/matchmaking/progress/:requestId?userId=<mongo_user_id>`
+
+等待中回應：
+
+```json
+{
+  "status": "waiting",
+  "requestId": "<match_request_id>",
+  "currentMatchedCount": 2
+}
+```
+
+成團回應：
+
+```json
+{
+  "status": "matched",
+  "requestId": "<match_request_id>",
+  "groupId": "<match_group_id>",
+  "currentMatchedCount": 4,
+  "venue": {
+    "name": "XX 麻將館",
+    "lat": 25.04,
+    "lon": 121.56,
+    "navigationUrl": "https://www.google.com/maps/dir/?api=1&destination=25.04,121.56"
+  }
+}
+```
+
 ## Firebase / 推播設定
 
 - 後端：
