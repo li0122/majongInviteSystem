@@ -181,3 +181,88 @@ flutter run --dart-define=API_BASE_URL=http://localhost:4000/api
 - 目前 OTP 若未設定 SMTP，會走 mock 模式並輸出到後端 console。
 - 店家資料目前為 mock，可改成 MongoDB 集合。
 - 媒合採同金額、時間窗 ±60 分鐘、半徑 15KM。
+
+## 自架 SMTP（綁定網域）
+
+如果你要用自己的伺服器寄 OTP，建議使用子網域，例如 `mail.yourdomain.com`。
+
+### 1) DNS 設定（在網域 DNS 供應商）
+
+- `A` 記錄：`mail.yourdomain.com -> 你的伺服器 IP`
+- `MX` 記錄：`yourdomain.com -> mail.yourdomain.com`（priority 10）
+- `TXT`（SPF）：`v=spf1 mx a ip4:你的伺服器IP -all`
+- `TXT`（DMARC）：`_dmarc.yourdomain.com = v=DMARC1; p=quarantine; rua=mailto:postmaster@yourdomain.com`
+- `TXT`（DKIM）：使用郵件服務（例如 Postal/Mailcow/Postfix+OpenDKIM）產生公鑰後新增
+
+### 2) 郵件伺服器埠與 TLS
+
+- 開放防火牆埠：`25`（server-to-server）、`587`（submission）
+- 若 SMTP 走 SMTPS，使用 `465`
+- 建議加上 TLS 憑證（Let's Encrypt）
+
+### 3) 專案 `.env`（backend）
+
+```bash
+OTP_EMAIL_FROM=no-reply@yourdomain.com
+SMTP_HOST=mail.yourdomain.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_REQUIRE_TLS=true
+SMTP_USER=no-reply@yourdomain.com
+SMTP_PASS=your_smtp_password
+```
+
+若你使用 `465`，請改成：
+
+```bash
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_REQUIRE_TLS=false
+```
+
+### 4) 重啟後端服務
+
+```bash
+cd backend
+npm run build
+pm2 restart MIS-Backend --update-env
+pm2 logs MIS-Backend --lines 100
+```
+
+## 使用 Gmail 發送 OTP（建議）
+
+如果不想自架 SMTP，可直接用 Gmail 的 App Password。
+
+### 1) 建立 Gmail App Password
+
+- Google 帳號先開啟 2-Step Verification
+- 到 App passwords 建立一組給「Mail」使用的密碼
+- 請使用 App Password，不要使用 Gmail 一般登入密碼
+
+### 2) 後端 `.env` 設定
+
+```bash
+OTP_EMAIL_FROM=your_account@gmail.com
+SMTP_PROVIDER=gmail
+GMAIL_USER=your_account@gmail.com
+GMAIL_APP_PASSWORD=your_16_char_app_password
+```
+
+可選寫法（等價）：
+
+```bash
+SMTP_PROVIDER=gmail
+SMTP_USER=your_account@gmail.com
+SMTP_PASS=your_16_char_app_password
+```
+
+### 3) 重啟後端
+
+```bash
+cd backend
+npm run build
+pm2 restart MIS-Backend --update-env
+pm2 logs MIS-Backend --lines 100
+```
+
+若設定正確，`POST /api/auth/request-otp` 會直接寄到目標信箱。

@@ -6,14 +6,39 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateOtp = generateOtp;
 exports.sendOtpEmail = sendOtpEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
+function isTruthy(value) {
+    return ["true", "1", "yes"].includes((value || "").toLowerCase());
+}
+function resolveSmtpUser() {
+    return process.env.SMTP_USER || process.env.GMAIL_USER;
+}
+function resolveSmtpPass() {
+    return process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
+}
 function createTransporter() {
+    const provider = (process.env.SMTP_PROVIDER || "").toLowerCase();
+    const user = resolveSmtpUser();
+    const pass = resolveSmtpPass();
+    if (provider === "gmail") {
+        return nodemailer_1.default.createTransport({
+            service: "gmail",
+            auth: {
+                user,
+                pass,
+            },
+        });
+    }
+    const port = Number(process.env.SMTP_PORT || 587);
+    const secure = process.env.SMTP_SECURE ? isTruthy(process.env.SMTP_SECURE) : port === 465;
+    const requireTLS = isTruthy(process.env.SMTP_REQUIRE_TLS || "false");
     return nodemailer_1.default.createTransport({
         host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: false,
+        port,
+        secure,
+        requireTLS,
         auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            user,
+            pass,
         },
     });
 }
@@ -22,7 +47,11 @@ function generateOtp() {
 }
 async function sendOtpEmail(email, otp) {
     const from = process.env.OTP_EMAIL_FROM || "no-reply@mahjongmatch.local";
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    const provider = (process.env.SMTP_PROVIDER || "").toLowerCase();
+    const user = resolveSmtpUser();
+    const pass = resolveSmtpPass();
+    const hasProviderConfig = provider === "gmail" || !!process.env.SMTP_HOST;
+    if (!hasProviderConfig || !user || !pass) {
         console.log(`[OTP MOCK] email=${email}, otp=${otp}`);
         return;
     }
