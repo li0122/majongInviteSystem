@@ -204,7 +204,7 @@ export async function startMatchmaking(params: {
   const existingRequest = await MatchRequestModel.findOne({
     userId: userObjectId,
     status: "searching",
-  });
+  }).sort({ createdAt: -1 });
 
   if (existingRequest) {
     if (!isValidSearchingRequest(existingRequest)) {
@@ -244,7 +244,7 @@ export async function startMatchmaking(params: {
     const activeRequest = await MatchRequestModel.findOne({
       userId: userObjectId,
       status: "searching",
-    });
+    }).sort({ createdAt: -1 });
 
     if (!activeRequest) {
       throw new DuplicateActiveMatchRequestError();
