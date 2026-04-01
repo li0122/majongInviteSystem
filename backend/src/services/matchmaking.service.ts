@@ -20,6 +20,19 @@ function toDate(value: string | Date) {
   return value instanceof Date ? value : new Date(value);
 }
 
+function isValidSearchingRequest(request: Pick<IMatchRequest, "stakeLevel" | "startTime" | "location">) {
+  const coords = request.location?.coordinates;
+  return Boolean(
+    request.stakeLevel &&
+      request.startTime instanceof Date &&
+      !Number.isNaN(request.startTime.getTime()) &&
+      Array.isArray(coords) &&
+      coords.length === 2 &&
+      Number.isFinite(coords[0]) &&
+      Number.isFinite(coords[1])
+  );
+}
+
 function timeWindow(startTime: Date) {
   const before = new Date(startTime.getTime() - TIME_WINDOW_MINUTES * 60 * 1000);
   const after = new Date(startTime.getTime() + TIME_WINDOW_MINUTES * 60 * 1000);
@@ -194,7 +207,14 @@ export async function startMatchmaking(params: {
   });
 
   if (existingRequest) {
-    return tryFinalizeMatch(existingRequest);
+    if (!isValidSearchingRequest(existingRequest)) {
+      await MatchRequestModel.updateOne(
+        { _id: existingRequest._id },
+        { $set: { status: "expired" } }
+      );
+    } else {
+      return tryFinalizeMatch(existingRequest);
+    }
   }
 
   let request: IMatchRequest;
