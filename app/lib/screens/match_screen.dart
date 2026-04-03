@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../models/stake_levels.dart';
 import '../models/user_session.dart';
+import 'matched_group_screen.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../services/matchmaking_service.dart';
@@ -147,17 +148,7 @@ class _MatchScreenState extends State<MatchScreen> {
           _startProgressPolling(requestId);
         }
       } else {
-        final venue = result['venue'] as Map<String, dynamic>?;
-        final venueName = venue?['name']?.toString() ?? '地點待確認';
-        final navUrl = venue?['navigationUrl']?.toString() ?? '';
-        setState(() {
-          _activeRequestId = null;
-          _progressTimer?.cancel();
-          _currentMatchedCount = 4;
-          _statusText = navUrl.isEmpty
-              ? '成團成功：$venueName'
-              : '成團成功：$venueName\n導航：$navUrl';
-        });
+        await _handleMatchedResult(result);
       }
     } catch (error) {
       setState(() => _statusText = '配對失敗：$error');
@@ -199,18 +190,7 @@ class _MatchScreenState extends State<MatchScreen> {
       }
 
       if (status == 'matched') {
-        final venue = result['venue'] as Map<String, dynamic>?;
-        final venueName = venue?['name']?.toString() ?? '地點待確認';
-        final navUrl = venue?['navigationUrl']?.toString() ?? '';
-
-        _progressTimer?.cancel();
-        setState(() {
-          _activeRequestId = null;
-          _currentMatchedCount = 4;
-          _statusText = navUrl.isEmpty
-              ? '成團成功：$venueName'
-              : '成團成功：$venueName\n導航：$navUrl';
-        });
+        await _handleMatchedResult(result);
         return;
       }
 
@@ -221,9 +201,40 @@ class _MatchScreenState extends State<MatchScreen> {
           _statusText = '本次配對已過期，請重新發起配對';
         });
       }
-    } catch (_error) {
+    } catch (error) {
+      debugPrint('Progress polling transient error: $error');
       // Keep polling; transient network errors should not stop the matching flow.
     }
+  }
+
+  Future<void> _handleMatchedResult(Map<String, dynamic> result) async {
+    final groupId = result['groupId']?.toString();
+    final venue = result['venue'] as Map<String, dynamic>?;
+    final venueName = venue?['name']?.toString() ?? '地點待確認';
+    final navUrl = venue?['navigationUrl']?.toString() ?? '';
+
+    _progressTimer?.cancel();
+    setState(() {
+      _activeRequestId = null;
+      _currentMatchedCount = 4;
+      _statusText = navUrl.isEmpty ? '成團成功：$venueName' : '成團成功：$venueName\n導航：$navUrl';
+    });
+
+    if (groupId == null || !mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MatchedGroupScreen(
+          groupId: groupId,
+          session: widget.session,
+          authService: widget.authService,
+          locationService: widget.locationService,
+          matchmakingService: widget.matchmakingService,
+        ),
+      ),
+    );
   }
 
   @override

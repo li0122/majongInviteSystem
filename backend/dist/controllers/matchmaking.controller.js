@@ -2,6 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startMatch = startMatch;
 exports.getMatchProgress = getMatchProgress;
+exports.getGroupOverview = getGroupOverview;
+exports.getGroupMessages = getGroupMessages;
+exports.postGroupMessage = postGroupMessage;
 const MatchRequest_1 = require("../models/MatchRequest");
 const matchmaking_service_1 = require("../services/matchmaking.service");
 async function startMatch(req, res) {
@@ -43,5 +46,62 @@ async function getMatchProgress(req, res) {
     catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Failed to get matchmaking progress" });
+    }
+}
+async function getGroupOverview(req, res) {
+    try {
+        const groupId = req.params.groupId;
+        const userId = req.query.userId?.toString();
+        if (!groupId || !userId) {
+            return res.status(400).json({ message: "groupId and userId are required" });
+        }
+        const result = await (0, matchmaking_service_1.getMatchGroupOverview)({ groupId, userId });
+        if (result.status === "not_found") {
+            return res.status(404).json({ message: result.message });
+        }
+        return res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Failed to get group overview" });
+    }
+}
+async function getGroupMessages(req, res) {
+    try {
+        const groupId = req.params.groupId;
+        const userId = req.query.userId?.toString();
+        if (!groupId || !userId) {
+            return res.status(400).json({ message: "groupId and userId are required" });
+        }
+        const result = await (0, matchmaking_service_1.getMatchGroupMessages)({ groupId, userId });
+        if (result.status === "not_found") {
+            return res.status(404).json({ message: result.message });
+        }
+        return res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Failed to get group messages" });
+    }
+}
+async function postGroupMessage(req, res) {
+    try {
+        const groupId = req.params.groupId;
+        const { userId, message } = req.body;
+        if (!groupId || !userId || typeof message !== "string") {
+            return res.status(400).json({ message: "groupId, userId, message are required" });
+        }
+        const result = await (0, matchmaking_service_1.sendMatchGroupMessage)({ groupId, userId, message });
+        if (result.status === "not_found") {
+            return res.status(404).json({ message: result.message });
+        }
+        if (result.status === "invalid") {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Failed to post group message" });
     }
 }

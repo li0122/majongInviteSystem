@@ -5,4 +5,7 @@ const matchmaking_controller_1 = require("../controllers/matchmaking.controller"
 const router = (0, express_1.Router)();
 router.post("/start", matchmaking_controller_1.startMatch);
 router.get("/progress/:requestId", matchmaking_controller_1.getMatchProgress);
+router.get("/group/:groupId/overview", matchmaking_controller_1.getGroupOverview);
+router.get("/group/:groupId/messages", matchmaking_controller_1.getGroupMessages);
+router.post("/group/:groupId/messages", matchmaking_controller_1.postGroupMessage);
 exports.default = router;

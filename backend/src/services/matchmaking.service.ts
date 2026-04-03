@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { mockVenues } from "../data/venues";
+import { MatchChatMessageModel } from "../models/MatchChatMessage";
 import { MatchGroupModel } from "../models/MatchGroup";
 import { IMatchRequest, MatchRequestModel, StakeLevel } from "../models/MatchRequest";
 import { UserModel } from "../models/User";
@@ -325,5 +326,130 @@ export async function getMatchmakingProgress(params: { userId: string; requestId
     status: "waiting",
     requestId: request._id,
     currentMatchedCount: Math.min(4, candidates.length),
+  };
+}
+
+export async function getMatchGroupOverview(params: { userId: string; groupId: string }) {
+  const userObjectId = new Types.ObjectId(params.userId);
+  const groupObjectId = new Types.ObjectId(params.groupId);
+
+  const group = await MatchGroupModel.findOne({
+    _id: groupObjectId,
+    userIds: userObjectId,
+  });
+
+  if (!group) {
+    return {
+      status: "not_found" as const,
+      message: "Match group not found",
+    };
+  }
+
+  const users = await UserModel.find({ _id: { $in: group.userIds } });
+  const userById = new Map(users.map((u) => [u._id.toString(), u]));
+
+  const members = group.userIds.map((id) => {
+    const user = userById.get(id.toString());
+    return {
+      userId: id,
+      name: user?.name ?? "Unknown",
+      username: user?.username ?? "unknown",
+      location: user?.location
+        ? {
+            lat: user.location.coordinates[1],
+            lon: user.location.coordinates[0],
+          }
+        : null,
+    };
+  });
+
+  return {
+    status: "ok" as const,
+    groupId: group._id,
+    venue: group.venue,
+    meetingPoint: group.meetingPoint,
+    members,
+  };
+}
+
+export async function getMatchGroupMessages(params: { userId: string; groupId: string }) {
+  const userObjectId = new Types.ObjectId(params.userId);
+  const groupObjectId = new Types.ObjectId(params.groupId);
+
+  const group = await MatchGroupModel.findOne({
+    _id: groupObjectId,
+    userIds: userObjectId,
+  });
+
+  if (!group) {
+    return {
+      status: "not_found" as const,
+      message: "Match group not found",
+    };
+  }
+
+  const messages = await MatchChatMessageModel.find({ groupId: groupObjectId }).sort({ createdAt: 1 }).limit(200);
+  const senderIds = Array.from(new Set(messages.map((m) => m.senderId.toString()))).map((id) => new Types.ObjectId(id));
+  const users = await UserModel.find({ _id: { $in: senderIds } });
+  const senderById = new Map(users.map((u) => [u._id.toString(), u]));
+
+  return {
+    status: "ok" as const,
+    groupId: group._id,
+    messages: messages.map((m) => {
+      const sender = senderById.get(m.senderId.toString());
+      return {
+        id: m._id,
+        senderId: m.senderId,
+        senderName: sender?.name ?? "Unknown",
+        message: m.message,
+        createdAt: m.createdAt,
+      };
+    }),
+  };
+}
+
+export async function sendMatchGroupMessage(params: { userId: string; groupId: string; message: string }) {
+  const userObjectId = new Types.ObjectId(params.userId);
+  const groupObjectId = new Types.ObjectId(params.groupId);
+
+  const group = await MatchGroupModel.findOne({
+    _id: groupObjectId,
+    userIds: userObjectId,
+  });
+
+  if (!group) {
+    return {
+      status: "not_found" as const,
+      message: "Match group not found",
+    };
+  }
+
+  const normalizedMessage = params.message.trim();
+  if (!normalizedMessage) {
+    return {
+      status: "invalid" as const,
+      message: "message is required",
+    };
+  }
+
+  const created = await MatchChatMessageModel.create({
+    groupId: groupObjectId,
+    senderId: userObjectId,
+    message: normalizedMessage,
+  });
+
+  const sender = await UserModel.findById(userObjectId);
+
+  return {
+    status: "ok" as const,
+    groupId: group._id,
+    message: {
+      id: created._id,
+      senderId: created.senderId,
+      senderName: sender?.name ?? "Unknown",
+      message: created.message,
+      createdAt: created.createdAt,
+    },
   };
 }

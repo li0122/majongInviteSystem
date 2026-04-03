@@ -27,4 +27,29 @@ class MatchmakingService {
       queryParameters: {'userId': userId},
     );
   }
+
+  Future<Map<String, dynamic>> getGroupOverview({required String userId, required String groupId}) {
+    return _apiClient.get(
+      '/matchmaking/group/$groupId/overview',
+      queryParameters: {'userId': userId},
+    );
+  }
+
+  Future<Map<String, dynamic>> getGroupMessages({required String userId, required String groupId}) {
+    return _apiClient.get(
+      '/matchmaking/group/$groupId/messages',
+      queryParameters: {'userId': userId},
+    );
+  }
+
+  Future<Map<String, dynamic>> postGroupMessage({
+    required String userId,
+    required String groupId,
+    required String message,
+  }) {
+    return _apiClient.post('/matchmaking/group/$groupId/messages', {
+      'userId': userId,
+      'message': message,
+    });
+  }
 }

@@ -2,8 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startMatchmaking = startMatchmaking;
 exports.getMatchmakingProgress = getMatchmakingProgress;
+exports.getMatchGroupOverview = getMatchGroupOverview;
+exports.getMatchGroupMessages = getMatchGroupMessages;
+exports.sendMatchGroupMessage = sendMatchGroupMessage;
 const mongoose_1 = require("mongoose");
 const venues_1 = require("../data/venues");
+const MatchChatMessage_1 = require("../models/MatchChatMessage");
 const MatchGroup_1 = require("../models/MatchGroup");
 const MatchRequest_1 = require("../models/MatchRequest");
 const User_1 = require("../models/User");
@@ -19,6 +23,16 @@ class DuplicateActiveMatchRequestError extends Error {
 }
 function toDate(value) {
     return value instanceof Date ? value : new Date(value);
+}
+function isValidSearchingRequest(request) {
+    const coords = request.location?.coordinates;
+    return Boolean(request.stakeLevel &&
+        request.startTime instanceof Date &&
+        !Number.isNaN(request.startTime.getTime()) &&
+        Array.isArray(coords) &&
+        coords.length === 2 &&
+        Number.isFinite(coords[0]) &&
+        Number.isFinite(coords[1]));
 }
 function timeWindow(startTime) {
     const before = new Date(startTime.getTime() - TIME_WINDOW_MINUTES * 60 * 1000);
@@ -151,9 +165,14 @@ async function startMatchmaking(params) {
     const existingRequest = await MatchRequest_1.MatchRequestModel.findOne({
         userId: userObjectId,
         status: "searching",
-    });
+    }).sort({ createdAt: -1 });
     if (existingRequest) {
-        return tryFinalizeMatch(existingRequest);
+        if (!isValidSearchingRequest(existingRequest)) {
+            await MatchRequest_1.MatchRequestModel.updateOne({ _id: existingRequest._id }, { $set: { status: "expired" } });
+        }
+        else {
+            return tryFinalizeMatch(existingRequest);
+        }
     }
     let request;
     try {
@@ -179,7 +198,7 @@ async function startMatchmaking(params) {
         const activeRequest = await MatchRequest_1.MatchRequestModel.findOne({
             userId: userObjectId,
             status: "searching",
-        });
+        }).sort({ createdAt: -1 });
         if (!activeRequest) {
             throw new DuplicateActiveMatchRequestError();
         }
@@ -248,5 +267,112 @@ async function getMatchmakingProgress(params) {
         status: "waiting",
         requestId: request._id,
         currentMatchedCount: Math.min(4, candidates.length),
+    };
+}
+async function getMatchGroupOverview(params) {
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const groupObjectId = new mongoose_1.Types.ObjectId(params.groupId);
+    const group = await MatchGroup_1.MatchGroupModel.findOne({
+        _id: groupObjectId,
+        userIds: userObjectId,
+    });
+    if (!group) {
+        return {
+            status: "not_found",
+            message: "Match group not found",
+        };
+    }
+    const users = await User_1.UserModel.find({ _id: { $in: group.userIds } });
+    const userById = new Map(users.map((u) => [u._id.toString(), u]));
+    const members = group.userIds.map((id) => {
+        const user = userById.get(id.toString());
+        return {
+            userId: id,
+            name: user?.name ?? "Unknown",
+            username: user?.username ?? "unknown",
+            location: user?.location
+                ? {
+                    lat: user.location.coordinates[1],
+                    lon: user.location.coordinates[0],
+                }
+                : null,
+        };
+    });
+    return {
+        status: "ok",
+        groupId: group._id,
+        venue: group.venue,
+        meetingPoint: group.meetingPoint,
+        members,
+    };
+}
+async function getMatchGroupMessages(params) {
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const groupObjectId = new mongoose_1.Types.ObjectId(params.groupId);
+    const group = await MatchGroup_1.MatchGroupModel.findOne({
+        _id: groupObjectId,
+        userIds: userObjectId,
+    });
+    if (!group) {
+        return {
+            status: "not_found",
+            message: "Match group not found",
+        };
+    }
+    const messages = await MatchChatMessage_1.MatchChatMessageModel.find({ groupId: groupObjectId }).sort({ createdAt: 1 }).limit(200);
+    const senderIds = Array.from(new Set(messages.map((m) => m.senderId.toString()))).map((id) => new mongoose_1.Types.ObjectId(id));
+    const users = await User_1.UserModel.find({ _id: { $in: senderIds } });
+    const senderById = new Map(users.map((u) => [u._id.toString(), u]));
+    return {
+        status: "ok",
+        groupId: group._id,
+        messages: messages.map((m) => {
+            const sender = senderById.get(m.senderId.toString());
+            return {
+                id: m._id,
+                senderId: m.senderId,
+                senderName: sender?.name ?? "Unknown",
+                message: m.message,
+                createdAt: m.createdAt,
+            };
+        }),
+    };
+}
+async function sendMatchGroupMessage(params) {
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const groupObjectId = new mongoose_1.Types.ObjectId(params.groupId);
+    const group = await MatchGroup_1.MatchGroupModel.findOne({
+        _id: groupObjectId,
+        userIds: userObjectId,
+    });
+    if (!group) {
+        return {
+            status: "not_found",
+            message: "Match group not found",
+        };
+    }
+    const normalizedMessage = params.message.trim();
+    if (!normalizedMessage) {
+        return {
+            status: "invalid",
+            message: "message is required",
+        };
+    }
+    const created = await MatchChatMessage_1.MatchChatMessageModel.create({
+        groupId: groupObjectId,
+        senderId: userObjectId,
+        message: normalizedMessage,
+    });
+    const sender = await User_1.UserModel.findById(userObjectId);
+    return {
+        status: "ok",
+        groupId: group._id,
+        message: {
+            id: created._id,
+            senderId: created.senderId,
+            senderName: sender?.name ?? "Unknown",
+            message: created.message,
+            createdAt: created.createdAt,
+        },
     };
 }
