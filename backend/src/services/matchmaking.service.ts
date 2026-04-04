@@ -322,6 +322,10 @@ export async function getMatchmakingProgress(params: { userId: string; requestId
     },
   }).limit(4);
 
+  if (candidates.length >= 4) {
+    return tryFinalizeMatch(request);
+  }
+
   return {
     status: "waiting",
     requestId: request._id,

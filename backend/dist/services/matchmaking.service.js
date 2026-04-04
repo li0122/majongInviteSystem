@@ -263,6 +263,9 @@ async function getMatchmakingProgress(params) {
             },
         },
     }).limit(4);
+    if (candidates.length >= 4) {
+        return tryFinalizeMatch(request);
+    }
     return {
         status: "waiting",
         requestId: request._id,
