@@ -406,10 +406,18 @@ export async function getMatchGroupOverview(params: { userId: string; groupId: s
 
   const users = await UserModel.find({ _id: { $in: group.userIds } });
   const userById = new Map(users.map((u) => [u._id.toString(), u]));
+  const matchedRequests = await MatchRequestModel.find({ _id: { $in: group.requestIds } });
+  const requestByUserId = new Map(matchedRequests.map((req) => [req.userId.toString(), req]));
 
   const members = group.userIds.map((id) => {
     const user = userById.get(id.toString());
-    const coordinates = user?.location?.coordinates;
+    const fallbackRequest = requestByUserId.get(id.toString());
+    const userCoordinates = user?.location?.coordinates;
+    const requestCoordinates = fallbackRequest?.location?.coordinates;
+    const coordinates =
+      Array.isArray(userCoordinates) && userCoordinates.length >= 2
+        ? userCoordinates
+        : requestCoordinates;
     const hasValidCoordinates =
       Array.isArray(coordinates) &&
       coordinates.length >= 2 &&
