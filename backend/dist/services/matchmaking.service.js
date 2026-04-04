@@ -41,6 +41,28 @@ function timeWindow(startTime) {
     const after = new Date(startTime.getTime() + TIME_WINDOW_MINUTES * 60 * 1000);
     return { before, after };
 }
+function shouldReuseExistingSearchingRequest(existing, desired) {
+    if (existing.stakeLevel !== desired.stakeLevel) {
+        return false;
+    }
+    const existingTime = existing.startTime.getTime();
+    const desiredTime = desired.startTime.getTime();
+    if (!Number.isFinite(existingTime) || !Number.isFinite(desiredTime)) {
+        return false;
+    }
+    // Small tolerance to avoid churning request ids for trivial client-side clock drift.
+    const withinStartTimeTolerance = Math.abs(existingTime - desiredTime) <= 60 * 1000;
+    if (!withinStartTimeTolerance) {
+        return false;
+    }
+    const coords = existing.location?.coordinates;
+    if (!Array.isArray(coords) || coords.length !== 2) {
+        return false;
+    }
+    const distanceKm = (0, geo_1.haversineDistanceKm)({ lat: desired.lat, lon: desired.lon }, { lat: coords[1], lon: coords[0] });
+    // Reuse only if the requested location is effectively the same place.
+    return distanceKm <= 0.2;
+}
 function pickBestVenue(target) {
     const candidates = venues_1.mockVenues.filter((v) => v.available);
     if (!candidates.length) {
@@ -173,7 +195,16 @@ async function startMatchmaking(params) {
             await MatchRequest_1.MatchRequestModel.updateOne({ _id: existingRequest._id }, { $set: { status: "expired" } });
         }
         else {
-            return tryFinalizeMatch(existingRequest);
+            const canReuseExisting = shouldReuseExistingSearchingRequest(existingRequest, {
+                stakeLevel: params.stakeLevel,
+                startTime: start,
+                lat: params.lat,
+                lon: params.lon,
+            });
+            if (canReuseExisting) {
+                return tryFinalizeMatch(existingRequest);
+            }
+            await MatchRequest_1.MatchRequestModel.updateOne({ _id: existingRequest._id }, { $set: { status: "expired" } });
         }
     }
     let request;
@@ -453,6 +484,13 @@ async function leaveMatchGroup(params) {
     const requeuedUserIds = [];
     for (const memberId of group.userIds) {
         const userId = memberId.toString();
+        // Reset previous queue state to avoid reusing stale searching requests.
+        await MatchRequest_1.MatchRequestModel.updateMany({
+            userId: memberId,
+            status: "searching",
+        }, {
+            $set: { status: "expired" },
+        });
         const existingSearching = await MatchRequest_1.MatchRequestModel.findOne({
             userId: memberId,
             status: "searching",
