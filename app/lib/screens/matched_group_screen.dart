@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/user_session.dart';
+import 'match_screen.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../services/matchmaking_service.dart';
@@ -18,6 +19,7 @@ class MatchedGroupScreen extends StatefulWidget {
     required this.authService,
     required this.locationService,
     required this.matchmakingService,
+    this.onGroupEnded,
   });
 
   final String groupId;
@@ -25,6 +27,7 @@ class MatchedGroupScreen extends StatefulWidget {
   final AuthService authService;
   final LocationService locationService;
   final MatchmakingService matchmakingService;
+  final VoidCallback? onGroupEnded;
 
   @override
   State<MatchedGroupScreen> createState() => _MatchedGroupScreenState();
@@ -37,6 +40,7 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
   int _tabIndex = 0;
   bool _loadingOverview = true;
   bool _sendingMessage = false;
+  bool _leavingGroup = false;
   String? _errorText;
 
   Map<String, dynamic>? _venue;
@@ -94,6 +98,12 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
         groupId: widget.groupId,
       );
 
+      final status = result['status']?.toString();
+      if (status == 'dissolved') {
+        await _handleGroupDissolved();
+        return;
+      }
+
       final members = (result['members'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
           .toList();
@@ -124,6 +134,12 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
         userId: widget.session.userId,
         groupId: widget.groupId,
       );
+
+      final status = result['status']?.toString();
+      if (status == 'dissolved') {
+        await _handleGroupDissolved();
+        return;
+      }
 
       final messages = (result['messages'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
@@ -156,11 +172,17 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
     setState(() => _sendingMessage = true);
 
     try {
-      await widget.matchmakingService.postGroupMessage(
+      final result = await widget.matchmakingService.postGroupMessage(
         userId: widget.session.userId,
         groupId: widget.groupId,
         message: text,
       );
+
+      if (result['status']?.toString() == 'dissolved') {
+        await _handleGroupDissolved();
+        return;
+      }
+
       _messageController.clear();
       await _refreshMessages();
     } catch (error) {
@@ -171,6 +193,81 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
     } finally {
       if (mounted) {
         setState(() => _sendingMessage = false);
+      }
+    }
+  }
+
+  Future<void> _handleGroupDissolved() async {
+    _pollingTimer?.cancel();
+    _positionSub?.cancel();
+    await widget.authService.clearActiveGroupId();
+
+    if (!mounted) {
+      return;
+    }
+
+    widget.onGroupEnded?.call();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('有成員離開，房間已解散，已返回配對佇列')),
+    );
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => MatchScreen(
+          session: widget.session,
+          authService: widget.authService,
+          locationService: widget.locationService,
+          matchmakingService: widget.matchmakingService,
+        ),
+      ),
+      (_) => false,
+    );
+  }
+
+  Future<void> _confirmLeaveGroup() async {
+    if (_leavingGroup) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('確認退出配對房間'),
+            content: const Text('你退出後，整個房間會解散，所有成員都會重新加入配對佇列。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('確定退出'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) {
+      return;
+    }
+
+    setState(() => _leavingGroup = true);
+    try {
+      await widget.matchmakingService.leaveGroup(
+        userId: widget.session.userId,
+        groupId: widget.groupId,
+      );
+      await _handleGroupDissolved();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorText = '退出房間失敗：$error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _leavingGroup = false);
       }
     }
   }
@@ -378,47 +475,61 @@ class _MatchedGroupScreenState extends State<MatchedGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('已成團'),
-        backgroundColor: const Color(0xFF163A5F),
-        foregroundColor: Colors.white,
-      ),
-      body: _loadingOverview
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_errorText != null)
-                  MaterialBanner(
-                    backgroundColor: const Color(0xFFFFF7ED),
-                    content: Text(_errorText!),
-                    actions: [
-                      TextButton(
-                        onPressed: () => setState(() => _errorText = null),
-                        child: const Text('關閉'),
-                      ),
-                    ],
-                  ),
-                Expanded(
-                  child: _tabIndex == 0 ? _buildChatTab() : _buildMapTab(),
-                ),
-              ],
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('已成團'),
+          backgroundColor: const Color(0xFF163A5F),
+          foregroundColor: Colors.white,
+          actions: [
+            TextButton.icon(
+              onPressed: _leavingGroup ? null : _confirmLeaveGroup,
+              icon: const Icon(Icons.exit_to_app, color: Colors.white),
+              label: Text(
+                _leavingGroup ? '退出中' : '退出配對',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: '聊天室',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: '地圖',
-          ),
-        ],
+          ],
+        ),
+        body: _loadingOverview
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  if (_errorText != null)
+                    MaterialBanner(
+                      backgroundColor: const Color(0xFFFFF7ED),
+                      content: Text(_errorText!),
+                      actions: [
+                        TextButton(
+                          onPressed: () => setState(() => _errorText = null),
+                          child: const Text('關閉'),
+                        ),
+                      ],
+                    ),
+                  Expanded(
+                    child: _tabIndex == 0 ? _buildChatTab() : _buildMapTab(),
+                  ),
+                ],
+              ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabIndex,
+          onDestinationSelected: (index) => setState(() => _tabIndex = index),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.chat_bubble_outline),
+              selectedIcon: Icon(Icons.chat_bubble),
+              label: '聊天室',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.map_outlined),
+              selectedIcon: Icon(Icons.map),
+              label: '地圖',
+            ),
+          ],
+        ),
       ),
     );
   }

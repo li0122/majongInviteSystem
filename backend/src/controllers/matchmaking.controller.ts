@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { STAKE_LEVELS } from "../models/MatchRequest";
 import {
+  getActiveMatchGroup,
   getMatchGroupMessages,
   getMatchGroupOverview,
   getMatchmakingProgress,
+  leaveMatchGroup,
   sendMatchGroupMessage,
   startMatchmaking,
 } from "../services/matchmaking.service";
@@ -76,6 +78,9 @@ export async function getGroupOverview(req: Request, res: Response) {
     if (result.status === "not_found") {
       return res.status(404).json({ message: result.message });
     }
+    if (result.status === "dissolved") {
+      return res.status(200).json(result);
+    }
 
     return res.json(result);
   } catch (error) {
@@ -96,6 +101,9 @@ export async function getGroupMessages(req: Request, res: Response) {
     const result = await getMatchGroupMessages({ groupId, userId });
     if (result.status === "not_found") {
       return res.status(404).json({ message: result.message });
+    }
+    if (result.status === "dissolved") {
+      return res.status(200).json(result);
     }
 
     return res.json(result);
@@ -118,6 +126,9 @@ export async function postGroupMessage(req: Request, res: Response) {
     if (result.status === "not_found") {
       return res.status(404).json({ message: result.message });
     }
+    if (result.status === "dissolved") {
+      return res.status(409).json({ message: result.message });
+    }
     if (result.status === "invalid") {
       return res.status(400).json({ message: result.message });
     }
@@ -126,5 +137,41 @@ export async function postGroupMessage(req: Request, res: Response) {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Failed to post group message" });
+  }
+}
+
+export async function getActiveGroup(req: Request, res: Response) {
+  try {
+    const userId = req.query.userId?.toString();
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const result = await getActiveMatchGroup({ userId });
+    return res.json(result);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to get active group" });
+  }
+}
+
+export async function postLeaveGroup(req: Request, res: Response) {
+  try {
+    const groupId = req.params.groupId;
+    const { userId } = req.body as { userId?: string };
+
+    if (!groupId || !userId) {
+      return res.status(400).json({ message: "groupId and userId are required" });
+    }
+
+    const result = await leaveMatchGroup({ groupId, userId });
+    if (result.status === "not_found") {
+      return res.status(404).json({ message: result.message });
+    }
+
+    return res.json(result);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Failed to leave group" });
   }
 }

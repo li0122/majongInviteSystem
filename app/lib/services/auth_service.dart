@@ -11,6 +11,7 @@ class AuthService {
   final ApiClient _apiClient;
   static const String _tokenKey = 'auth_token';
   static const String _userKey = 'user_data';
+  static const String _activeGroupKey = 'active_group_id';
 
   Future<String?> getStoredToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -67,6 +68,22 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_userKey);
+    await prefs.remove(_activeGroupKey);
+  }
+
+  Future<String?> getActiveGroupId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_activeGroupKey);
+  }
+
+  Future<void> setActiveGroupId(String groupId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_activeGroupKey, groupId);
+  }
+
+  Future<void> clearActiveGroupId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_activeGroupKey);
   }
 
   Future<void> register({

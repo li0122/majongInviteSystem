@@ -224,7 +224,13 @@ class _MatchScreenState extends State<MatchScreen> {
       return;
     }
 
-    await Navigator.of(context).push(
+    await widget.authService.setActiveGroupId(groupId);
+
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MatchedGroupScreen(
           groupId: groupId,
@@ -232,6 +238,15 @@ class _MatchScreenState extends State<MatchScreen> {
           authService: widget.authService,
           locationService: widget.locationService,
           matchmakingService: widget.matchmakingService,
+          onGroupEnded: () {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _activeRequestId = null;
+              _statusText = '房間已解散，已重新加入配對佇列';
+            });
+          },
         ),
       ),
     );

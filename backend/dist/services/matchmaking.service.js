@@ -5,6 +5,8 @@ exports.getMatchmakingProgress = getMatchmakingProgress;
 exports.getMatchGroupOverview = getMatchGroupOverview;
 exports.getMatchGroupMessages = getMatchGroupMessages;
 exports.sendMatchGroupMessage = sendMatchGroupMessage;
+exports.getActiveMatchGroup = getActiveMatchGroup;
+exports.leaveMatchGroup = leaveMatchGroup;
 const mongoose_1 = require("mongoose");
 const venues_1 = require("../data/venues");
 const MatchChatMessage_1 = require("../models/MatchChatMessage");
@@ -285,6 +287,12 @@ async function getMatchGroupOverview(params) {
             message: "Match group not found",
         };
     }
+    if (group.status !== "confirmed") {
+        return {
+            status: "dissolved",
+            message: "Match group has been dissolved",
+        };
+    }
     const users = await User_1.UserModel.find({ _id: { $in: group.userIds } });
     const userById = new Map(users.map((u) => [u._id.toString(), u]));
     const members = group.userIds.map((id) => {
@@ -327,6 +335,12 @@ async function getMatchGroupMessages(params) {
             message: "Match group not found",
         };
     }
+    if (group.status !== "confirmed") {
+        return {
+            status: "dissolved",
+            message: "Match group has been dissolved",
+        };
+    }
     const messages = await MatchChatMessage_1.MatchChatMessageModel.find({ groupId: groupObjectId }).sort({ createdAt: 1 }).limit(200);
     const senderIds = Array.from(new Set(messages.map((m) => m.senderId.toString()))).map((id) => new mongoose_1.Types.ObjectId(id));
     const users = await User_1.UserModel.find({ _id: { $in: senderIds } });
@@ -359,6 +373,12 @@ async function sendMatchGroupMessage(params) {
             message: "Match group not found",
         };
     }
+    if (group.status !== "confirmed") {
+        return {
+            status: "dissolved",
+            message: "Match group has been dissolved",
+        };
+    }
     const normalizedMessage = params.message.trim();
     if (!normalizedMessage) {
         return {
@@ -382,5 +402,116 @@ async function sendMatchGroupMessage(params) {
             message: created.message,
             createdAt: created.createdAt,
         },
+    };
+}
+async function getActiveMatchGroup(params) {
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const group = await MatchGroup_1.MatchGroupModel.findOne({
+        userIds: userObjectId,
+        status: "confirmed",
+    }).sort({ createdAt: -1 });
+    if (!group) {
+        return {
+            status: "none",
+        };
+    }
+    return {
+        status: "ok",
+        groupId: group._id,
+    };
+}
+async function leaveMatchGroup(params) {
+    const userObjectId = new mongoose_1.Types.ObjectId(params.userId);
+    const groupObjectId = new mongoose_1.Types.ObjectId(params.groupId);
+    const group = await MatchGroup_1.MatchGroupModel.findOne({
+        _id: groupObjectId,
+        userIds: userObjectId,
+    });
+    if (!group) {
+        return {
+            status: "not_found",
+            message: "Match group not found",
+        };
+    }
+    if (group.status !== "confirmed") {
+        return {
+            status: "dissolved",
+            message: "Match group has been dissolved",
+        };
+    }
+    await MatchGroup_1.MatchGroupModel.updateOne({ _id: group._id }, {
+        $set: { status: "cancelled" },
+    });
+    await MatchRequest_1.MatchRequestModel.updateMany({ _id: { $in: group.requestIds } }, {
+        $set: { status: "expired" },
+    });
+    const users = await User_1.UserModel.find({ _id: { $in: group.userIds } });
+    const userById = new Map(users.map((u) => [u._id.toString(), u]));
+    const matchedRequests = await MatchRequest_1.MatchRequestModel.find({ _id: { $in: group.requestIds } });
+    const requestByUserId = new Map(matchedRequests.map((req) => [req.userId.toString(), req]));
+    const requeueStartTime = new Date(Date.now() + 15 * 60 * 1000);
+    const requeuedUserIds = [];
+    for (const memberId of group.userIds) {
+        const userId = memberId.toString();
+        const existingSearching = await MatchRequest_1.MatchRequestModel.findOne({
+            userId: memberId,
+            status: "searching",
+        });
+        if (existingSearching) {
+            requeuedUserIds.push(userId);
+            continue;
+        }
+        const user = userById.get(userId);
+        const request = requestByUserId.get(userId);
+        const userCoords = user?.location?.coordinates;
+        const requestCoords = request?.location?.coordinates;
+        let lon;
+        let lat;
+        if (Array.isArray(userCoords) &&
+            userCoords.length === 2 &&
+            Number.isFinite(userCoords[0]) &&
+            Number.isFinite(userCoords[1])) {
+            lon = userCoords[0];
+            lat = userCoords[1];
+        }
+        else if (Array.isArray(requestCoords) &&
+            requestCoords.length === 2 &&
+            Number.isFinite(requestCoords[0]) &&
+            Number.isFinite(requestCoords[1])) {
+            lon = requestCoords[0];
+            lat = requestCoords[1];
+        }
+        else {
+            lon = group.meetingPoint.lon;
+            lat = group.meetingPoint.lat;
+        }
+        try {
+            await MatchRequest_1.MatchRequestModel.create({
+                userId: memberId,
+                stakeLevel: group.stakeLevel,
+                startTime: requeueStartTime,
+                status: "searching",
+                location: {
+                    type: "Point",
+                    coordinates: [lon, lat],
+                },
+            });
+            requeuedUserIds.push(userId);
+        }
+        catch {
+            const fallbackSearching = await MatchRequest_1.MatchRequestModel.findOne({
+                userId: memberId,
+                status: "searching",
+            });
+            if (fallbackSearching) {
+                requeuedUserIds.push(userId);
+            }
+        }
+    }
+    return {
+        status: "ok",
+        groupId: group._id,
+        requeuedUserIds,
+        message: "Group dissolved and all members were re-queued",
     };
 }

@@ -349,6 +349,13 @@ export async function getMatchGroupOverview(params: { userId: string; groupId: s
     };
   }
 
+  if (group.status !== "confirmed") {
+    return {
+      status: "dissolved" as const,
+      message: "Match group has been dissolved",
+    };
+  }
+
   const users = await UserModel.find({ _id: { $in: group.userIds } });
   const userById = new Map(users.map((u) => [u._id.toString(), u]));
 
@@ -399,6 +406,13 @@ export async function getMatchGroupMessages(params: { userId: string; groupId: s
     };
   }
 
+  if (group.status !== "confirmed") {
+    return {
+      status: "dissolved" as const,
+      message: "Match group has been dissolved",
+    };
+  }
+
   const messages = await MatchChatMessageModel.find({ groupId: groupObjectId }).sort({ createdAt: 1 }).limit(200);
   const senderIds = Array.from(new Set(messages.map((m) => m.senderId.toString()))).map((id) => new Types.ObjectId(id));
   const users = await UserModel.find({ _id: { $in: senderIds } });
@@ -436,6 +450,13 @@ export async function sendMatchGroupMessage(params: { userId: string; groupId: s
     };
   }
 
+  if (group.status !== "confirmed") {
+    return {
+      status: "dissolved" as const,
+      message: "Match group has been dissolved",
+    };
+  }
+
   const normalizedMessage = params.message.trim();
   if (!normalizedMessage) {
     return {
@@ -462,5 +483,143 @@ export async function sendMatchGroupMessage(params: { userId: string; groupId: s
       message: created.message,
       createdAt: created.createdAt,
     },
+  };
+}
+
+export async function getActiveMatchGroup(params: { userId: string }) {
+  const userObjectId = new Types.ObjectId(params.userId);
+
+  const group = await MatchGroupModel.findOne({
+    userIds: userObjectId,
+    status: "confirmed",
+  }).sort({ createdAt: -1 });
+
+  if (!group) {
+    return {
+      status: "none" as const,
+    };
+  }
+
+  return {
+    status: "ok" as const,
+    groupId: group._id,
+  };
+}
+
+export async function leaveMatchGroup(params: { userId: string; groupId: string }) {
+  const userObjectId = new Types.ObjectId(params.userId);
+  const groupObjectId = new Types.ObjectId(params.groupId);
+
+  const group = await MatchGroupModel.findOne({
+    _id: groupObjectId,
+    userIds: userObjectId,
+  });
+
+  if (!group) {
+    return {
+      status: "not_found" as const,
+      message: "Match group not found",
+    };
+  }
+
+  if (group.status !== "confirmed") {
+    return {
+      status: "dissolved" as const,
+      message: "Match group has been dissolved",
+    };
+  }
+
+  await MatchGroupModel.updateOne(
+    { _id: group._id },
+    {
+      $set: { status: "cancelled" },
+    }
+  );
+
+  await MatchRequestModel.updateMany(
+    { _id: { $in: group.requestIds } },
+    {
+      $set: { status: "expired" },
+    }
+  );
+
+  const users = await UserModel.find({ _id: { $in: group.userIds } });
+  const userById = new Map(users.map((u) => [u._id.toString(), u]));
+
+  const matchedRequests = await MatchRequestModel.find({ _id: { $in: group.requestIds } });
+  const requestByUserId = new Map(matchedRequests.map((req) => [req.userId.toString(), req]));
+
+  const requeueStartTime = new Date(Date.now() + 15 * 60 * 1000);
+  const requeuedUserIds: string[] = [];
+
+  for (const memberId of group.userIds) {
+    const userId = memberId.toString();
+    const existingSearching = await MatchRequestModel.findOne({
+      userId: memberId,
+      status: "searching",
+    });
+
+    if (existingSearching) {
+      requeuedUserIds.push(userId);
+      continue;
+    }
+
+    const user = userById.get(userId);
+    const request = requestByUserId.get(userId);
+
+    const userCoords = user?.location?.coordinates;
+    const requestCoords = request?.location?.coordinates;
+    let lon: number;
+    let lat: number;
+
+    if (
+      Array.isArray(userCoords) &&
+      userCoords.length === 2 &&
+      Number.isFinite(userCoords[0]) &&
+      Number.isFinite(userCoords[1])
+    ) {
+      lon = userCoords[0];
+      lat = userCoords[1];
+    } else if (
+      Array.isArray(requestCoords) &&
+      requestCoords.length === 2 &&
+      Number.isFinite(requestCoords[0]) &&
+      Number.isFinite(requestCoords[1])
+    ) {
+      lon = requestCoords[0];
+      lat = requestCoords[1];
+    } else {
+      lon = group.meetingPoint.lon;
+      lat = group.meetingPoint.lat;
+    }
+
+    try {
+      await MatchRequestModel.create({
+        userId: memberId,
+        stakeLevel: group.stakeLevel,
+        startTime: requeueStartTime,
+        status: "searching",
+        location: {
+          type: "Point",
+          coordinates: [lon, lat],
+        },
+      });
+      requeuedUserIds.push(userId);
+    } catch {
+      const fallbackSearching = await MatchRequestModel.findOne({
+        userId: memberId,
+        status: "searching",
+      });
+      if (fallbackSearching) {
+        requeuedUserIds.push(userId);
+      }
+    }
+  }
+
+  return {
+    status: "ok" as const,
+    groupId: group._id,
+    requeuedUserIds,
+    message: "Group dissolved and all members were re-queued",
   };
 }

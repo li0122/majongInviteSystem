@@ -6,6 +6,7 @@ import 'models/user_session.dart';
 import 'screens/auth_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/match_screen.dart';
+import 'screens/matched_group_screen.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/location_service.dart';
@@ -49,6 +50,7 @@ class MahjongApp extends StatefulWidget {
 class _MahjongAppState extends State<MahjongApp> {
   final _apiClient = ApiClient();
   UserSession? _session;
+  String? _activeGroupId;
   bool _isLoading = true;
   bool _showLoginScreen = false;
 
@@ -60,7 +62,26 @@ class _MahjongAppState extends State<MahjongApp> {
 
   Future<void> _checkAutoLogin() async {
     final authService = AuthService(_apiClient);
+    final matchmakingService = MatchmakingService(_apiClient);
     final storedSession = await authService.getStoredSession();
+    String? activeGroupId;
+
+    if (storedSession != null) {
+      try {
+        final localActiveGroupId = await authService.getActiveGroupId();
+        final activeGroup = await matchmakingService.getActiveGroup(userId: storedSession.userId);
+        final serverActiveGroupId = activeGroup['status'] == 'ok' ? activeGroup['groupId']?.toString() : null;
+
+        activeGroupId = serverActiveGroupId ?? localActiveGroupId;
+        if (activeGroupId == null) {
+          await authService.clearActiveGroupId();
+        } else {
+          await authService.setActiveGroupId(activeGroupId);
+        }
+      } catch (_) {
+        activeGroupId = await authService.getActiveGroupId();
+      }
+    }
 
     if (!mounted) {
       return;
@@ -68,6 +89,7 @@ class _MahjongAppState extends State<MahjongApp> {
 
     setState(() {
       _session = storedSession;
+      _activeGroupId = activeGroupId;
       _isLoading = false;
       _showLoginScreen = storedSession == null;
     });
@@ -111,21 +133,36 @@ class _MahjongAppState extends State<MahjongApp> {
               ? LoginScreen(
                   authService: authService,
                   fcmToken: widget.fcmToken,
-                  onVerified: (session) => setState(() => _session = session),
+                  onVerified: (session) => setState(() {
+                    _session = session;
+                    _activeGroupId = null;
+                  }),
                   onNavigateToRegister: () => setState(() => _showLoginScreen = false),
                 )
               : AuthScreen(
                   authService: authService,
                   fcmToken: widget.fcmToken,
-                  onVerified: (session) => setState(() => _session = session),
+                  onVerified: (session) => setState(() {
+                    _session = session;
+                    _activeGroupId = null;
+                  }),
                   onNavigateToLogin: () => setState(() => _showLoginScreen = true),
                 ))
-          : MatchScreen(
-              session: _session!,
-              authService: authService,
-              locationService: locationService,
-              matchmakingService: matchmakingService,
-            ),
+          : (_activeGroupId != null
+              ? MatchedGroupScreen(
+                  groupId: _activeGroupId!,
+                  session: _session!,
+                  authService: authService,
+                  locationService: locationService,
+                  matchmakingService: matchmakingService,
+                  onGroupEnded: () => setState(() => _activeGroupId = null),
+                )
+              : MatchScreen(
+                  session: _session!,
+                  authService: authService,
+                  locationService: locationService,
+                  matchmakingService: matchmakingService,
+                )),
     );
   }
 }

@@ -5,6 +5,8 @@ exports.getMatchProgress = getMatchProgress;
 exports.getGroupOverview = getGroupOverview;
 exports.getGroupMessages = getGroupMessages;
 exports.postGroupMessage = postGroupMessage;
+exports.getActiveGroup = getActiveGroup;
+exports.postLeaveGroup = postLeaveGroup;
 const MatchRequest_1 = require("../models/MatchRequest");
 const matchmaking_service_1 = require("../services/matchmaking.service");
 async function startMatch(req, res) {
@@ -59,6 +61,9 @@ async function getGroupOverview(req, res) {
         if (result.status === "not_found") {
             return res.status(404).json({ message: result.message });
         }
+        if (result.status === "dissolved") {
+            return res.status(200).json(result);
+        }
         return res.json(result);
     }
     catch (error) {
@@ -76,6 +81,9 @@ async function getGroupMessages(req, res) {
         const result = await (0, matchmaking_service_1.getMatchGroupMessages)({ groupId, userId });
         if (result.status === "not_found") {
             return res.status(404).json({ message: result.message });
+        }
+        if (result.status === "dissolved") {
+            return res.status(200).json(result);
         }
         return res.json(result);
     }
@@ -95,6 +103,9 @@ async function postGroupMessage(req, res) {
         if (result.status === "not_found") {
             return res.status(404).json({ message: result.message });
         }
+        if (result.status === "dissolved") {
+            return res.status(409).json({ message: result.message });
+        }
         if (result.status === "invalid") {
             return res.status(400).json({ message: result.message });
         }
@@ -103,5 +114,37 @@ async function postGroupMessage(req, res) {
     catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Failed to post group message" });
+    }
+}
+async function getActiveGroup(req, res) {
+    try {
+        const userId = req.query.userId?.toString();
+        if (!userId) {
+            return res.status(400).json({ message: "userId is required" });
+        }
+        const result = await (0, matchmaking_service_1.getActiveMatchGroup)({ userId });
+        return res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Failed to get active group" });
+    }
+}
+async function postLeaveGroup(req, res) {
+    try {
+        const groupId = req.params.groupId;
+        const { userId } = req.body;
+        if (!groupId || !userId) {
+            return res.status(400).json({ message: "groupId and userId are required" });
+        }
+        const result = await (0, matchmaking_service_1.leaveMatchGroup)({ groupId, userId });
+        if (result.status === "not_found") {
+            return res.status(404).json({ message: result.message });
+        }
+        return res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Failed to leave group" });
     }
 }
