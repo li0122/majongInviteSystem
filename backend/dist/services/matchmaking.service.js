@@ -289,14 +289,19 @@ async function getMatchGroupOverview(params) {
     const userById = new Map(users.map((u) => [u._id.toString(), u]));
     const members = group.userIds.map((id) => {
         const user = userById.get(id.toString());
+        const coordinates = user?.location?.coordinates;
+        const hasValidCoordinates = Array.isArray(coordinates) &&
+            coordinates.length >= 2 &&
+            Number.isFinite(coordinates[0]) &&
+            Number.isFinite(coordinates[1]);
         return {
             userId: id,
             name: user?.name ?? "Unknown",
             username: user?.username ?? "unknown",
-            location: user?.location
+            location: hasValidCoordinates
                 ? {
-                    lat: user.location.coordinates[1],
-                    lon: user.location.coordinates[0],
+                    lat: coordinates[1],
+                    lon: coordinates[0],
                 }
                 : null,
         };
